@@ -1350,3 +1350,117 @@ def plot_heatmap(map_frequency, title, cmap):
 
 
 
+
+
+map_names = ['ancient', 'nuke', 'anubis', 'overpass', 'mirage', 'vertigo', 'inferno']
+colors = {
+    'vertigo': 'cyan', 'ancient': 'forestgreen', 'inferno': 'red',
+    'nuke': 'grey', 'mirage': 'salmon', 'anubis': 'darkgoldenrod', 'overpass': 'violet'
+}
+
+full_data_map_frequency = frequency_of_map(cs_matches)
+
+cleaned_cs_matches, cleaned_data_map_frequency = clean_and_analyze_cs_matches(cs_matches)
+
+wins, losses = calculate_wins_losses(cleaned_cs_matches)
+
+
+frequency_as_wordcloud_with_colors(full_data_map_frequency, colors, title='How Much a Map was Selected')
+frequency_as_wordcloud_with_colors(cleaned_data_map_frequency, colors, title='How Much a Map was Selected and Not Dodged')
+
+
+plot_map_frequency(full_data_map_frequency, colors, title='How Much a Map was Selected', xlabel='Map', ylabel='Frequency Selected')
+plot_map_frequency(cleaned_data_map_frequency, colors, title='How Much a Map was Selected and Not Dodged', xlabel='Map', ylabel='Frequency Selected')
+
+def calculate_map_frequencies(cs_matches, rank, captain_status=None):
+    return {
+        map_name: sum(
+            1 for day in cs_matches["data"].values() for match in day["matches"]
+            if match["rank"] == rank and
+               (captain_status is None or match["captain"] == captain_status) and
+               match["map"].lower() == map_name
+        )
+        for map_name in map_names
+    }
+
+rank6_frequency = calculate_map_frequencies(cs_matches, rank=6)
+rank5_frequency = calculate_map_frequencies(cs_matches, rank=5)
+rank6_noCap_frequency = calculate_map_frequencies(cs_matches, rank=6, captain_status=False)
+rank5_noCap_frequency = calculate_map_frequencies(cs_matches, rank=5, captain_status=False)
+
+plot_map_frequency(rank5_frequency, colors, 'How Much a Map was Selected at Rank 5', 'Map', 'Frequency Selected')
+plot_map_frequency(rank6_frequency, colors, 'How Much a Map was Selected at Rank 6', 'Map', 'Frequency Selected')
+plot_map_frequency(rank5_noCap_frequency, colors, 'How Much a Map was Selected by Someone Else at Rank 5', 'Map', 'Frequency Selected')
+plot_map_frequency(rank6_noCap_frequency, colors, 'How Much a Map was Selected by Someone Else at Rank 6', 'Map', 'Frequency Selected')
+
+def count_wins_losses(cs_matches):
+    map_counts = {"True": {name: 0 for name in map_names}, "False": {name: 0 for name in map_names}}
+
+    for day in cs_matches["data"].values():
+        for match in day["matches"]:
+            if match.get("matchData") is not None:
+                win_status = match["matchData"].get("win")
+                if win_status is not None and match["map"].lower() in map_names:
+                    map_counts[str(win_status)][match["map"].lower()] += 1
+
+    return map_counts
+
+map_counts = count_wins_losses(cs_matches)
+
+map_names_capitalized = [name.capitalize() for name in map_names]
+true_counts = [map_counts["True"].get(name, 0) for name in map_names]
+false_counts = [map_counts["False"].get(name, 0) for name in map_names]
+
+
+create_side_by_side_bar_chart(map_names_capitalized, true_counts, false_counts, 'Map', 'Frequency', 'Wins and Losses by Map', 'Win', 'Loss', 'goldenrod', 'red')
+
+win_percentages = {name: (true / (true + false)) * 100 if true + false > 0 else 0 for name, true, false in zip(map_names, true_counts, false_counts)}
+
+create_side_by_side_bar_chart(map_names_capitalized, true_counts, false_counts, 'Map', 'Frequency', 'Wins and Losses by Percentage', 'Win', 'Loss', 'goldenrod', 'red', win_percentages, 'Win Percentage', 'blue')
+
+def collect_map_data(cleaned_cs_matches):
+    map_data = {name.capitalize(): {'T_Side_Points': 0, 'CT_Side_Points': 0, "T_Side_Total_Points": 0, "CT_Side_Total_Points": 0} for name in map_names}
+    for day_data in cleaned_cs_matches['data'].values():
+        for match in day_data['matches']:
+            map_name = match['map'].capitalize()
+            if match.get('matchData'):
+                results = match['matchData']['results']
+                map_data[map_name]['T_Side_Points'] += results['t_side']['PlayerScore']
+                map_data[map_name]['CT_Side_Points'] += results['ct_side']['PlayerScore']
+                map_data[map_name]['T_Side_Total_Points'] += results['t_side']['PlayerScore'] + results['ct_side']['EnemyScore']
+                map_data[map_name]['CT_Side_Total_Points'] += results['ct_side']['PlayerScore'] + results['t_side']['EnemyScore']
+    return map_data
+
+map_data = collect_map_data(cleaned_cs_matches)
+
+
+
+def extract_point_values(search_term):
+    return [map_data[name].get(search_term, 0) for name in map_names_capitalized]
+
+t_side_points = extract_point_values('T_Side_Points')
+ct_side_points = extract_point_values('CT_Side_Points')
+t_side_total = extract_point_values('T_Side_Total_Points')
+ct_side_total = extract_point_values('CT_Side_Total_Points')
+
+plot_side_by_side_bar_chart_by_map_side(map_names_capitalized, t_side_points, ct_side_points, 'Map and Side', 'Points', 'Total Points On Map by Side', 'T-Side', 'CT-Side', colors, None, None, None)
+
+secondary_data = {name: {'T_Side_Percentage': (t / total_t) * 100, 'CT_Side_Percentage': (ct / total_ct) * 100} for name, t, total_t, ct, total_ct in zip(map_names_capitalized, t_side_points, t_side_total, ct_side_points, ct_side_total)}
+
+plot_side_by_side_bar_chart_by_map_side(map_names_capitalized, t_side_points, ct_side_points, 'Map and Side', 'Points', 'Total Points On Map by Side', 'T-Side', 'CT-Side', colors, secondary_data, "Player Point Percentage (%)", 'red')
+
+map_frequency = {}
+for day, matches in cleaned_cs_matches["data"].items():
+    for match in matches["matches"]:
+        map_name = match["map"].capitalize()
+        final_score = match['matchData']["results"]["finalScore"]
+        player_score = final_score["PlayerScore"]
+        enemy_score = final_score["EnemyScore"]
+        if player_score > 13 or abs(player_score - enemy_score) <= 2:
+            map_frequency[map_name] = map_frequency.get(map_name, 0) + 1
+
+for map_name in map_names_capitalized:
+    if map_name not in map_frequency:
+        map_frequency[map_name] = 0
+
+plot_heatmap(map_frequency, map_names_capitalized, 'Frequency of Close Matches by Map', "Reds")
